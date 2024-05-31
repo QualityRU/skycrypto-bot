@@ -1,0 +1,124 @@
+version: 2.1
+
+executors:
+  docker-publisher:
+    environment:
+      IMAGE_NAME: skycrypto/sky_bot_new
+    docker:
+      - image: cimg/base:2023.07
+
+
+commands:
+  build-app:
+    parameters:
+      flavor:
+        type: enum
+        enum: [ dev, prod ]
+    steps:
+      - checkout
+      - setup_remote_docker:
+          version: 20.10.23
+      - run:
+          name: Build Docker image
+          command: |
+            docker build -f Dockerfile -t $IMAGE_NAME:<< parameters.flavor >> .
+      - run:
+          name: Archive Docker image
+          command: |
+            docker save -o image.tar $IMAGE_NAME:<< parameters.flavor >>
+      - persist_to_workspace:
+          root: .
+          paths:
+            - ./image.tar
+  publish-app:
+    parameters:
+      flavor:
+        type: enum
+        enum: [ dev, prod ]
+    steps:
+      - attach_workspace:
+          at: /tmp/workspace
+      - setup_remote_docker:
+          version: 19.03.13
+      - run:
+          name: Load archived Docker image
+          command: |
+            docker load -i /tmp/workspace/image.tar
+      - run:
+          name: Publish Docker Image to Docker Hub
+          command: |
+            echo "$DOCKERHUB_PASS" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+            docker tag $IMAGE_NAME:<< parameters.flavor >> $IMAGE_NAME:0.0.<< pipeline.number >>
+            docker push $IMAGE_NAME:0.0.<< pipeline.number >>
+
+jobs:
+  build-dev:
+    executor: docker-publisher
+    steps:
+      - build-app:
+          flavor: dev
+  publish-dev:
+    executor: docker-publisher
+    steps:
+      - publish-app:
+          flavor: dev
+  send-msg:
+    executor: docker-publisher
+    parameters:
+      chat_id:
+        default: ${TELEGRAM_CHAT_ID}
+        description: |
+          Enter either your id of target chat value here or use the CircleCI UI to add your chat id under the 'TELEGRAM_CHAT_ID' environment variable
+        type: string
+      token:
+        default: ${TELEGRAM_TOKEN}
+        description: |
+          Enter either your token value here or use the CircleCI UI to add your token under the 'TELEGRAM_TOKEN' environment variable
+        type: string
+    steps:
+      - run:
+          command: |
+            echo 'export TELEGRAM_BUILD_STATUS="failure"' >> $BASH_ENV
+          name: Telegram - Setting Failure Condition
+          when: on_fail
+      - run:
+          command: |
+            echo 'export TELEGRAM_BUILD_STATUS="success"' >> $BASH_ENV
+          name: Telegram - Setting Success Condition
+          when: on_success
+      - run:
+          name: Sending message
+          command: |
+            send_msg () {
+                curl -s -X POST https://api.telegram.org/bot<< parameters.token >>/sendMessage \
+                    -d chat_id=<< parameters.chat_id >> \
+                    -d text="$1" -d parse_mode=Markdown
+            }
+            PROJECT_REPONAME=$(echo $CIRCLE_PROJECT_REPONAME | sed 's/_/\\_/g')
+            PULL_REQUEST=$(echo $CIRCLE_PULL_REQUEST | sed 's/_/\\_/g')
+            IMAGE=$(echo $IMAGE_NAME | sed 's/_/\\_/g')
+            if [ "$TELEGRAM_BUILD_STATUS" == "success" ]; then
+                send_msg "Образ для телеграм бота успешно обновлен%0Arepo: $PROJECT_REPONAME%0APR: $PULL_REQUEST%0Auser: $CIRCLE_USERNAME%0Aimage: $IMAGE:0.0.<< pipeline.number >>"
+            else
+                send_msg "Ошибка обновления Бота%0Arepo: $PROJECT_REPONAME%0APR: $PULL_REQUEST%0Auser: $CIRCLE_USERNAME"
+            fi
+workflows:
+  version: 2
+  deploy:
+    jobs:
+      - build-dev:
+          filters:
+            branches:
+              only: develop
+      - publish-dev:
+          requires:
+            - build-dev
+          filters:
+            branches:
+              only: develop
+      - send-msg:
+          requires:
+            - publish-dev
+          filters:
+            branches:
+              only: develop

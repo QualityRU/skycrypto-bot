@@ -1,0 +1,110 @@
+version: '3.8'
+
+services:
+  eth:
+    build: .
+    restart: always
+    container_name: eth
+    volumes:
+      - .:/code
+    command: python bot.py
+    depends_on:
+      - rediseth
+    env_file:
+      - envs/.env
+      - envs/eth.env
+    networks:
+      - rediseth_nw
+
+  btc:
+    build: .
+    restart: always
+    container_name: btc
+    volumes:
+      - .:/code
+    command: python bot.py
+    depends_on:
+      - redisbtc
+    env_file:
+      - envs/.env
+      - envs/btc.env
+    networks:
+      - redisbtc_nw
+
+  usdt:
+    build: .
+    restart: always
+    container_name: usdt
+    volumes:
+      - .:/code
+    command: python bot.py
+    depends_on:
+      - redisusdt
+    env_file:
+      - envs/.env
+      - envs/usdt.env
+    networks:
+      - redisusdt_nw
+
+  control_btc:
+    build: .
+    restart: always
+    container_name: control_btc
+    volumes:
+      - .:/code
+    command: python bot.py
+    depends_on:
+      - rediscontrol
+    env_file:
+      - envs/.env
+      - envs/control_btc_bot.env
+    networks:
+      - rediscontrol_nw
+
+  rediseth:
+      image: redis:latest
+      volumes:
+        - redis_data1:/data
+      logging:
+        driver: none
+      networks:
+        - rediseth_nw
+
+  redisbtc:
+      image: redis:latest
+      volumes:
+        - redis_data2:/data
+      logging:
+        driver: none
+      networks:
+        - redisbtc_nw
+
+  redisusdt:
+      image: redis:latest
+      volumes:
+        - redis_data3:/data
+      logging:
+        driver: none
+      networks:
+        - redisusdt_nw
+
+  rediscontrol:
+      image: redis:latest
+      volumes:
+        - redis_data4:/data
+      logging:
+        driver: none
+      networks:
+        - rediscontrol_nw
+
+volumes:
+  redis_data1:
+  redis_data2:
+  redis_data3:
+  redis_data4:
+
+networks:
+  rediseth_nw:
+  redisbtc_nw:
+  redisusdt_nw:
+  rediscontrol_nw:
